@@ -196,18 +196,20 @@ app.get('/api/stream-execute', async (req, res) => {
     res.end();
 });
 
-// Get audit log
-app.get('/api/audit', (_req, res) => {
-    try {
-        const log = getAuditLog();
-        return res.json(log);
-    } catch (error) {
-        console.error('Audit log error:', error);
-        return res.status(500).json({
-            error: 'Failed to retrieve audit log',
-        });
-    }
-});
+// Get audit log (only available if audit is enabled)
+if (process.env.AUDIT_ENABLED === 'true') {
+    app.get('/api/audit', (_req, res) => {
+        try {
+            const log = getAuditLog();
+            return res.json(log);
+        } catch (error) {
+            console.error('Audit log error:', error);
+            return res.status(500).json({
+                error: 'Failed to retrieve audit log',
+            });
+        }
+    });
+}
 
 // Get available tools
 app.get('/api/tools', (_req, res) => {
@@ -243,6 +245,11 @@ app.delete('/api/mcp_servers', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
+    const auditEnabled = process.env.AUDIT_ENABLED === 'true';
+    const auditLine = auditEnabled
+        ? '║   • GET  /api/audit   → View audit history                 ║'
+        : '║   • Audit logging: DISABLED (set AUDIT_ENABLED=true)     ║';
+
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║                                                            ║
@@ -253,7 +260,7 @@ app.listen(PORT, () => {
 ║   Endpoints:                                               ║
 ║   • POST /api/plan    → Generate execution plan            ║
 ║   • POST /api/execute → Execute approved task              ║
-║   • GET  /api/audit   → View audit history                 ║
+${auditLine}
 ║   • GET  /api/tools   → List available tools               ║
 ║   • GET  /api/health  → Health check                       ║
 ║                                                            ║

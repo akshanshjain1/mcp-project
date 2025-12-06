@@ -40,6 +40,7 @@ npx vercel --prod
 ```
 GROQ_API_KEY=your_groq_key_here
 MCP_SERVER_PORT=3001
+AUDIT_ENABLED=false  # Disable audit logging for production
 # Optional:
 GITHUB_TOKEN=your_github_token
 SLACK_BOT_TOKEN=your_slack_token
@@ -72,6 +73,7 @@ railway deploy
 ```
 GROQ_API_KEY=your_groq_key_here
 MCP_SERVER_PORT=3001
+AUDIT_ENABLED=false  # Disable audit logging for production
 # Optional:
 GITHUB_TOKEN=your_github_token
 SLACK_BOT_TOKEN=your_slack_token
@@ -105,6 +107,7 @@ VITE_API_BASE_URL=https://your-railway-app.up.railway.app/api
 ```
 GROQ_API_KEY=your_groq_key_here
 MCP_SERVER_PORT=3001
+AUDIT_ENABLED=false  # Disable audit logging for production
 ```
 
 **Frontend:**
@@ -132,6 +135,9 @@ VITE_API_BASE_URL=https://your-backend-domain.com/api
 ```env
 # Required
 GROQ_API_KEY=your_groq_api_key_here
+
+# Production Settings
+AUDIT_ENABLED=false  # Disable file-based audit logging for production
 
 # Optional (for additional tools)
 GITHUB_TOKEN=your_github_token

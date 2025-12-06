@@ -3,18 +3,24 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { AuditEntry, AuditLog, AuditEntryType, ToolName } from './validation';
 
+// Disable audit logging in production by default
+const AUDIT_ENABLED = process.env.AUDIT_ENABLED === 'true';
 const AUDIT_DIR = path.join(__dirname, '..', 'audit');
 const AUDIT_FILE = path.join(AUDIT_DIR, 'log.json');
 
-// Ensure audit directory exists
+// Ensure audit directory exists (only if audit is enabled)
 function ensureAuditDir(): void {
+    if (!AUDIT_ENABLED) return;
+
     if (!fs.existsSync(AUDIT_DIR)) {
         fs.mkdirSync(AUDIT_DIR, { recursive: true });
     }
 }
 
-// Load audit log
+// Load audit log (return empty if audit is disabled)
 function loadAuditLog(): AuditLog {
+    if (!AUDIT_ENABLED) return { entries: [] };
+
     ensureAuditDir();
 
     if (!fs.existsSync(AUDIT_FILE)) {
@@ -29,14 +35,26 @@ function loadAuditLog(): AuditLog {
     }
 }
 
-// Save audit log
+// Save audit log (no-op if audit is disabled)
 function saveAuditLog(log: AuditLog): void {
+    if (!AUDIT_ENABLED) return;
+
     ensureAuditDir();
     fs.writeFileSync(AUDIT_FILE, JSON.stringify(log, null, 2), 'utf-8');
 }
 
-// Add audit entry
+// Add audit entry (only if audit is enabled)
 function addEntry(entry: Omit<AuditEntry, 'id' | 'timestamp'>): AuditEntry {
+    if (!AUDIT_ENABLED) {
+        // Return a dummy entry if audit is disabled
+        return {
+            id: 'audit-disabled',
+            timestamp: new Date().toISOString(),
+            type: entry.type,
+            data: entry.data,
+        };
+    }
+
     const log = loadAuditLog();
 
     const newEntry: AuditEntry = {
@@ -57,7 +75,7 @@ function addEntry(entry: Omit<AuditEntry, 'id' | 'timestamp'>): AuditEntry {
     return newEntry;
 }
 
-// Log a plan generation
+// Log a plan generation (no-op if audit disabled)
 export function logPlanGenerated(planId: string, summary: string, taskCount: number): AuditEntry {
     return addEntry({
         type: 'plan' as AuditEntryType,
@@ -69,7 +87,7 @@ export function logPlanGenerated(planId: string, summary: string, taskCount: num
     });
 }
 
-// Log task execution
+// Log task execution (no-op if audit disabled)
 export function logTaskExecuted(
     taskId: string,
     tool: ToolName,
@@ -89,7 +107,7 @@ export function logTaskExecuted(
     });
 }
 
-// Log error
+// Log error (no-op if audit disabled)
 export function logError(
     taskId: string | undefined,
     tool: ToolName | undefined,
@@ -105,12 +123,12 @@ export function logError(
     });
 }
 
-// Get audit entries
+// Get audit entries (returns empty if audit disabled)
 export function getAuditLog(): AuditLog {
     return loadAuditLog();
 }
 
-// Clear audit log
+// Clear audit log (no-op if audit disabled)
 export function clearAuditLog(): void {
     saveAuditLog({ entries: [] });
 }
