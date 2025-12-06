@@ -1,0 +1,19 @@
+{
+  "name": "autonomous-workspace-v3",
+  "version": "1.0.0",
+  "description": "Multi-Tool AI Agent with Safe Mode Execution",
+  "private": true,
+  "scripts": {
+    "dev:web": "cd client && npm run dev",
+    "dev:mcp": "cd mcp-server && npm run dev",
+    "install:all": "npm install && cd client && npm install && cd ../mcp-server && npm install",
+    "build:client": "cd client && npm run build",
+    "start": "npm-run-all --parallel dev:*"
+  },
+  "keywords": ["ai-agent", "mcp", "groq", "automation"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
+  }
+}
