@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# mcp-project
-=======
 # 🤖 Autonomous Workspace v3 — Multi-Tool AI Agent (Safe Mode)
 
 A full-stack AI agent system that extracts tasks from emails or text, maps them to MCP tools, and executes them with explicit user approval.
