@@ -227,7 +227,7 @@ OUTPUT FORMAT (JSON ONLY):
       { role: 'user', content: userRequest },
     ],
     temperature: 0.3, // Lower temperature for more focused, accurate planning
-    max_tokens: 3000, // Increased for more detailed plans
+    max_tokens: 4000, // Increased for more detailed plans
     response_format: { type: 'json_object' },
   }) as any; // Cast because createChatCompletion returns a union or generic
 
@@ -272,7 +272,7 @@ export async function summarizeToolResult(
     taskDescription.toLowerCase().includes('salary');
 
   // Use more tokens for detailed responses
-  const maxTokens = isComparison ? 6000 : 4000; // Increased for more comprehensive answers
+  const maxTokens = isComparison ? 8000 : 6000; // Significantly increased for comprehensive answers
 
   // Extract ALL sources with titles and FULL URLs
   const sourceRegex = /\*\*\d+\.\s*([^*]+)\*\*[^🔗]*🔗\s*(https?:\/\/[^\s\n]+)/g;
@@ -491,7 +491,7 @@ export async function streamSummarizeToolResult(
     taskDescription.toLowerCase().includes('compare') ||
     taskDescription.toLowerCase().includes('salary');
 
-  const maxTokens = isComparison ? 5000 : 2500;
+  const maxTokens = isComparison ? 8000 : 6000; // Significantly increased for comprehensive streaming responses
 
   // Extract sources
   const sourceRegex = /\*\*\d+\.\s*([^*]+)\*\*[^🔗]*🔗\s*(https?:\/\/[^\s\n]+)/g;
