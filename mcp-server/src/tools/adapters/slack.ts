@@ -34,7 +34,7 @@ export async function executeSlack(payload: SlackPayload): Promise<string> {
                     }),
                 });
 
-                const result = await response.json();
+                const result = await response.json() as { ok: boolean; error?: string };
 
                 if (!result.ok) {
                     throw new Error(`Slack API error: ${result.error}`);
@@ -56,13 +56,13 @@ export async function executeSlack(payload: SlackPayload): Promise<string> {
                     },
                 });
 
-                const result = await response.json();
+                const result = await response.json() as { ok: boolean; error?: string; channels?: any[] };
 
                 if (!result.ok) {
                     throw new Error(`Slack API error: ${result.error}`);
                 }
 
-                return `Found ${result.channels.length} channels`;
+                return `Found ${result.channels?.length || 0} channels`;
             }
 
             return '[MOCK] Listed Slack channels (no token configured)';

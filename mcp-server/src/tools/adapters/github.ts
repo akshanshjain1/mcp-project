@@ -38,11 +38,11 @@ export async function executeGithub(payload: GithubPayload): Promise<string> {
                 });
 
                 if (!response.ok) {
-                    const error = await response.json();
+                    const error = await response.json() as { message?: string };
                     throw new Error(`GitHub API error: ${error.message || response.statusText}`);
                 }
 
-                const issue = await response.json();
+                const issue = await response.json() as { html_url: string };
                 return `Issue created successfully: ${issue.html_url}`;
             }
 
@@ -63,7 +63,7 @@ export async function executeGithub(payload: GithubPayload): Promise<string> {
                     throw new Error(`GitHub API error: ${response.statusText}`);
                 }
 
-                const issues = await response.json();
+                const issues = await response.json() as any[];
                 return `Found ${issues.length} issues in ${repo}`;
             }
 
@@ -83,7 +83,7 @@ export async function executeGithub(payload: GithubPayload): Promise<string> {
                     throw new Error(`GitHub API error: ${response.statusText}`);
                 }
 
-                const repoData = await response.json();
+                const repoData = await response.json() as { full_name: string; description: string; stargazers_count: number };
                 return `Repository: ${repoData.full_name}\nDescription: ${repoData.description}\nStars: ${repoData.stargazers_count}`;
             }
 
