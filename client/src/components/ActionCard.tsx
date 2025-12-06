@@ -14,6 +14,8 @@ const TOOL_ICONS: Record<ToolName, string> = {
     calendar: '📅',
     terminal: '⚡',
     browser: '🌐',
+    search: '🔍',
+    leetcode: '💻',
 };
 
 const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
@@ -23,6 +25,8 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     calendar: 'Calendar',
     terminal: 'Terminal',
     browser: 'Browser Fetch',
+    search: 'Web Search',
+    leetcode: 'LeetCode',
 };
 
 export function ActionCard({ task, onApprove }: ActionCardProps) {
