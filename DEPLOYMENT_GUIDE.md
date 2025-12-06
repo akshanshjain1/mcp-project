@@ -90,9 +90,20 @@ VITE_API_BASE_URL=https://your-railway-app.up.railway.app/api
 #### **1. Deploy Backend to Render:**
 ```bash
 # Connect your GitHub repo to Render
-# Set build command: npm run build
+# Set build command: npm install && npm run build
 # Set start command: npm start
 ```
+
+**Important:** Make sure your `mcp-server/tsconfig.json` includes:
+```json
+{
+    "compilerOptions": {
+        "types": ["node"],
+        // ... other options
+    }
+}
+```
+This fixes TypeScript compilation errors on Render.
 
 #### **2. Deploy Frontend to Render:**
 ```bash
@@ -173,6 +184,11 @@ curl https://your-backend-url.com/api/health
 **API Connection Failed:**
 - ✅ Check `VITE_API_BASE_URL` is set correctly
 - ✅ Verify backend is running and accessible
+
+**TypeScript Build Errors on Render:**
+- ✅ Ensure `mcp-server/tsconfig.json` has `"types": ["node"]`
+- ✅ Verify `@types/node` is in devDependencies
+- ✅ Check that build command is `npm install && npm run build`
 
 **Environment Variables:**
 - ✅ All required env vars are set in your hosting platform
