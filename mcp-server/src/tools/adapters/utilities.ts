@@ -99,9 +99,44 @@ async function getCryptoPrice(symbol: string): Promise<string> {
 
 async function translateText(text: string, targetLang: string = 'es'): Promise<string> {
     if (!text) return '❌ Text is required';
-    // Mock translation for now as free APIs are scarce/limited
-    // In production, use Google Translate API or similar
-    return `[MOCK TRANSLATE to ${targetLang}]: ${text}`;
+
+    // Try LibreTranslate (free, open-source)
+    try {
+        const response = await fetch('https://libretranslate.com/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                q: text,
+                source: 'auto',
+                target: targetLang,
+                format: 'text'
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json() as any;
+            return `**${text}** → **${data.translatedText}** (${targetLang})`;
+        }
+    } catch (e) {
+        console.log('[Translate] LibreTranslate failed, trying fallback...');
+    }
+
+    // Fallback to MyMemory (free, 1000 chars/day)
+    try {
+        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|${targetLang}`;
+        const response = await fetch(url);
+
+        if (response.ok) {
+            const data = await response.json() as any;
+            if (data.responseData?.translatedText) {
+                return `**${text}** → **${data.responseData.translatedText}** (${targetLang})`;
+            }
+        }
+    } catch (e) {
+        console.log('[Translate] MyMemory failed');
+    }
+
+    return `❌ Translation failed. Try manually: https://translate.google.com/?sl=auto&tl=${targetLang}&text=${encodeURIComponent(text)}`;
 }
 
 async function getIpInfo(ip?: string): Promise<string> {

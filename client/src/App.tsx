@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
+import { PipelineStages, DEFAULT_PIPELINE_STAGES, PipelineStage } from './components/PipelineStages';
 import { Task } from './lib/types';
 import { analyzePlan, streamExecuteTask, getMcpServers, addMcpServer } from './api/mcpClient';
 
@@ -33,6 +34,11 @@ function App() {
         return parseInt(localStorage.getItem('sidebarWidth') || '320');
     });
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+    const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>(DEFAULT_PIPELINE_STAGES);
+    const [showPipeline, setShowPipeline] = useState(false);
+    const [currentTool, setCurrentTool] = useState<string | null>(null);
+    const [executingTaskIndex, setExecutingTaskIndex] = useState<number>(0);
+    const [totalTasks, setTotalTasks] = useState<number>(0);
     const mcpSelectorRef = useRef<HTMLDivElement>(null);
     const resizeHandleRef = useRef<HTMLDivElement>(null);
     const sidebarRef = useRef<HTMLDivElement>(null);
@@ -149,8 +155,16 @@ function App() {
         // Add user message
         addMessage({ type: 'user', content: text });
 
-        // Show loading
+        // Show pipeline and loading
         setIsLoading(true);
+        setShowPipeline(true);
+        setPipelineStages(DEFAULT_PIPELINE_STAGES.map(s => ({ ...s, status: 'pending' as const })));
+
+        // Start planning phase
+        setPipelineStages(prev => prev.map(s =>
+            s.id === 'parse' ? { ...s, status: 'active' as const } : s
+        ));
+
         const loadingMsgId = `loading-${Date.now()}`;
         setMessages(prev => [...prev, {
             id: loadingMsgId,
@@ -160,16 +174,43 @@ function App() {
         }]);
 
         try {
+            // Complete parse, start plan
+            setPipelineStages(prev => prev.map(s => {
+                if (s.id === 'parse') return { ...s, status: 'complete' as const };
+                if (s.id === 'plan') return { ...s, status: 'active' as const };
+                return s;
+            }));
+
             // Analyze the request
             const plan = await analyzePlan(text);
+
+            // Complete plan phase
+            setPipelineStages(prev => prev.map(s => {
+                if (s.id === 'plan') return { ...s, status: 'complete' as const };
+                if (s.id === 'execute') return { ...s, status: 'active' as const };
+                return s;
+            }));
 
             // Remove loading message
             setMessages(prev => prev.filter(m => m.id !== loadingMsgId));
 
-            // Add summary message
+            // Build visual task chain for display
+            const toolEmojis: Record<string, string> = {
+                search: '🔍', browser: '🌐', filesystem: '📁', utility: '⚙️',
+                github: '🐙', slack: '💬', calendar: '📅', terminal: '⚡', leetcode: '💻'
+            };
+
+            const taskChain = plan.tasks.map((t) => {
+                const emoji = toolEmojis[t.tool] || '🔧';
+                return `${emoji} **${t.tool}**: ${t.description}`;
+            }).join('\n');
+
+            const chainArrow = plan.tasks.map(t => toolEmojis[t.tool] || '🔧').join(' → ');
+
+            // Add summary message with LLM's plan
             addMessage({
                 type: 'assistant',
-                content: `📋 **${plan.summary}**\n\nI've identified **${plan.tasks.length} task(s)**. Executing automatically...`,
+                content: `📋 **${plan.summary}**\n\n🔗 **Execution Chain:** ${chainArrow}\n\n**Planned Tasks:**\n${taskChain}\n\n⚡ *Starting sequential execution...*`,
             });
 
             // Add task cards
@@ -181,32 +222,73 @@ function App() {
                 });
             }
 
+            // Set total tasks for progress tracking
+            setTotalTasks(plan.tasks.length);
+            setExecutingTaskIndex(0);
+
             // Execute tasks sequentially (one after another)
-            executeTasksSequentially(plan.tasks);
+            await executeTasksSequentially(plan.tasks);
+
+            // All tasks complete - update to summarize stage
+            setPipelineStages(prev => prev.map(s => {
+                if (s.id === 'execute') return { ...s, status: 'complete' as const };
+                if (s.id === 'summarize') return { ...s, status: 'complete' as const };
+                return s;
+            }));
+            setCurrentTool(null);
+
+            // Keep pipeline visible for 3 seconds after completion
+            setTimeout(() => setShowPipeline(false), 3000);
 
         } catch (error) {
             // Remove loading message
             setMessages(prev => prev.filter(m => m.id !== loadingMsgId));
 
+            // Mark pipeline as failed
+            setPipelineStages(prev => prev.map(s =>
+                s.status === 'active' ? { ...s, status: 'failed' as const } : s
+            ));
+            setCurrentTool(null);
+
             addMessage({
                 type: 'assistant',
                 content: `❌ **Error:** ${error instanceof Error ? error.message : 'Something went wrong. Please try again.'}`,
             });
+
+            // Keep pipeline visible to show error
+            setTimeout(() => setShowPipeline(false), 5000);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const executeTaskInternal = (task: Task): Promise<void> => {
+    const executeTaskInternal = (task: Task, previousResult?: string): Promise<string> => {
         return new Promise((resolve, reject) => {
             // Update task status to executing
             updateTaskInMessages(task.id, { status: 'executing', result: '' });
+
+            // Inject previous result into payload if this is a chained task
+            let effectivePayload = { ...task.payload };
+            if (previousResult) {
+                // For translate action, inject the text from previous result
+                if (effectivePayload.action === 'translate' || effectivePayload.text === '[WILL USE PREVIOUS RESULT]') {
+                    effectivePayload.text = previousResult.substring(0, 5000); // Limit length
+                }
+                // For filesystem write, inject content
+                if (effectivePayload.action === 'write' && !effectivePayload.content) {
+                    effectivePayload.content = previousResult;
+                }
+                // Generic: add as context
+                effectivePayload.previousContext = previousResult.substring(0, 2000);
+            }
+
+            let rawResult = ''; // Capture raw result for chaining
 
             // Start streaming execution
             streamExecuteTask({
                 taskId: task.id,
                 tool: task.tool,
-                payload: task.payload,
+                payload: effectivePayload,
                 description: task.description,
             }, (event) => {
                 switch (event.type) {
@@ -227,6 +309,8 @@ function App() {
                         }));
                         break;
                     case 'tool_result':
+                        // Capture raw result for chaining to next task
+                        rawResult = event.data.rawResult || '';
                         break;
                     case 'summary_chunk':
                         setMessages(prev => prev.map(msg => {
@@ -244,7 +328,7 @@ function App() {
                         break;
                     case 'done':
                         updateTaskInMessages(task.id, { status: 'success' });
-                        resolve();
+                        resolve(rawResult); // Return raw result for chaining
                         break;
                     case 'error':
                         updateTaskInMessages(task.id, {
@@ -259,20 +343,37 @@ function App() {
     };
 
     const executeTasksSequentially = async (tasks: Task[]) => {
+        let previousResult: string | undefined = undefined;
+
         for (let i = 0; i < tasks.length; i++) {
             const task = tasks[i];
+
+            // Update current tool being executed
+            setCurrentTool(task.tool);
+            setExecutingTaskIndex(i + 1);
+
             try {
-                // Wait for previous task to complete before starting next
-                await executeTaskInternal(task);
+                // Execute task with previous result for chaining
+                const result = await executeTaskInternal(task, previousResult);
+
+                // Store result for next task in chain
+                previousResult = result;
+
+                console.log(`[Chain] Task ${i + 1} completed, result length: ${result?.length || 0}`);
+
                 // Small delay between tasks for better UX
                 if (i < tasks.length - 1) {
                     await new Promise(resolve => setTimeout(resolve, 300));
                 }
             } catch (error) {
                 console.error(`Task ${task.id} failed:`, error);
-                // Continue with next task even if current one fails
+                // Continue with next task even if current one fails, but clear previous result
+                previousResult = undefined;
             }
         }
+
+        // Clear current tool when done
+        setCurrentTool(null);
     };
 
     const handleApproveTask = (task: Task) => {
@@ -314,9 +415,8 @@ function App() {
                     {/* Sidebar Panel */}
                     <div
                         ref={sidebarRef}
-                        className={`absolute top-0 left-0 h-full bg-white/95 backdrop-blur-xl border-r border-light-300 shadow-2xl transition-all duration-300 ${
-                            isResizing ? 'select-none' : ''
-                        }`}
+                        className={`absolute top-0 left-0 h-full bg-white/95 backdrop-blur-xl border-r border-light-300 shadow-2xl transition-all duration-300 ${isResizing ? 'select-none' : ''
+                            }`}
                         style={{ width: `${sidebarWidth}px` }}
                     >
                         {/* Sidebar Header */}
@@ -424,9 +524,8 @@ function App() {
                         {/* Resize Handle */}
                         <div
                             ref={resizeHandleRef}
-                            className={`absolute top-0 right-0 w-1 h-full bg-gray-200 hover:bg-brand-indigo transition-colors cursor-col-resize ${
-                                isResizing ? 'bg-brand-indigo' : ''
-                            }`}
+                            className={`absolute top-0 right-0 w-1 h-full bg-gray-200 hover:bg-brand-indigo transition-colors cursor-col-resize ${isResizing ? 'bg-brand-indigo' : ''
+                                }`}
                             onMouseDown={(e) => {
                                 e.preventDefault();
                                 setIsResizing(true);
@@ -484,6 +583,45 @@ function App() {
                             </div>
                         </div>
                     </div>
+
+                    {/* Pipeline Stages Indicator */}
+                    {showPipeline && (
+                        <div className="border-t border-light-200/50 bg-gradient-to-r from-brand-indigo/5 to-brand-purple/5">
+                            <div className="max-w-6xl mx-auto px-4">
+                                <PipelineStages
+                                    stages={pipelineStages}
+                                    currentStage={pipelineStages.find(s => s.status === 'active')?.id}
+                                    className="py-2"
+                                />
+
+                                {/* Current Tool Execution Info */}
+                                {currentTool && (
+                                    <div className="flex items-center justify-center gap-3 pb-2 text-sm">
+                                        <div className="flex items-center gap-2 px-3 py-1.5 bg-white/80 rounded-full border border-brand-indigo/20 shadow-sm">
+                                            <span className="text-lg">
+                                                {currentTool === 'search' ? '🔍' :
+                                                    currentTool === 'browser' ? '🌐' :
+                                                        currentTool === 'filesystem' ? '📁' :
+                                                            currentTool === 'utility' ? '⚙️' :
+                                                                currentTool === 'github' ? '🐙' :
+                                                                    currentTool === 'slack' ? '💬' :
+                                                                        currentTool === 'calendar' ? '📅' : '🔧'}
+                                            </span>
+                                            <span className="font-medium text-gray-700">
+                                                Executing: <span className="text-brand-indigo capitalize">{currentTool}</span>
+                                            </span>
+                                            {totalTasks > 0 && (
+                                                <span className="text-gray-500">
+                                                    ({executingTaskIndex}/{totalTasks})
+                                                </span>
+                                            )}
+                                            <span className="w-2 h-2 bg-brand-indigo rounded-full animate-pulse" />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </header>
 
                 {/* Messages */}

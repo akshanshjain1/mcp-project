@@ -37,7 +37,7 @@ export interface ToolDefinition {
 const TOOL_DEFINITIONS: ToolDefinition[] = [
     {
         name: 'filesystem',
-        description: 'Read, write, list, delete files, and create folders (mkdir) in the sandbox directory',
+        description: 'Read, write, list, delete LOCAL files only. NOT for web content - use search/browser for web. NEVER save web search results to files.',
         payloadExample: { action: 'write', path: 'notes.md', content: '# My Notes' },
         enabled: process.env.ENABLE_FILESYSTEM !== 'false', // Enabled by default
     },
@@ -123,6 +123,11 @@ export function getAvailableTools(): ToolDefinition[] {
     return [...builtIn, ...custom];
 }
 
+/**
+ * Dispatch a tool with automatic fallback handling
+ * - Browser failures fallback to search
+ * - Returns structured result for chaining
+ */
 export async function dispatchTool(
     tool: ToolName,
     payload: Record<string, unknown>,
@@ -160,7 +165,42 @@ export async function dispatchTool(
             return executeTerminal(payload as any as TerminalPayload);
 
         case 'browser':
-            return executeBrowser(payload as any as BrowserPayload);
+            // Browser with automatic fallback to search
+            try {
+                return await executeBrowser(payload as any as BrowserPayload);
+            } catch (error) {
+                const browserPayload = payload as any as BrowserPayload;
+                const url = browserPayload.url;
+
+                if (onLog) {
+                    onLog(`[Dispatcher] Browser failed for ${url}, falling back to search...`);
+                }
+                console.log(`[Dispatcher] Browser fallback: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+                // Extract meaningful query from URL
+                let searchQuery = url;
+                try {
+                    const parsed = new URL(url);
+                    // Use domain + path as search query
+                    searchQuery = `${parsed.hostname} ${parsed.pathname.replace(/\//g, ' ')}`.trim();
+                } catch {
+                    // URL parsing failed, use as-is
+                }
+
+                if (onLog) {
+                    onLog(`[Dispatcher] Searching for: "${searchQuery}"`);
+                }
+
+                // Fallback to search
+                const searchResult = await executeSearch({
+                    action: 'search',
+                    query: searchQuery,
+                    limit: 5,
+                    deepFetch: true
+                }, onLog);
+
+                return `[Fallback from browser to search]\n\n${searchResult}`;
+            }
 
         case 'search':
             return executeSearch(payload as any as SearchPayload, onLog);
@@ -177,4 +217,78 @@ export async function dispatchTool(
         default:
             throw new Error(`Unknown tool: ${tool}`);
     }
+}
+
+/**
+ * Dispatch tool with output transformation for chaining
+ * Allows the result of one tool to be transformed for the next
+ */
+export interface ChainedToolResult {
+    success: boolean;
+    tool: string;
+    result: string;
+    fallbackUsed?: string;
+    transformedForNext?: string;
+}
+
+export async function dispatchToolWithChaining(
+    tool: ToolName,
+    payload: Record<string, unknown>,
+    previousResult?: string,
+    nextTool?: ToolName,
+    onLog?: (message: string) => void
+): Promise<ChainedToolResult> {
+    // Inject previous result into payload if applicable
+    const enrichedPayload = previousResult
+        ? { ...payload, previousContext: previousResult }
+        : payload;
+
+    try {
+        const result = await dispatchTool(tool, enrichedPayload, onLog);
+        const fallbackUsed = result.startsWith('[Fallback') ? 'search' : undefined;
+
+        // Transform result for next tool if needed
+        let transformedForNext: string | undefined;
+        if (nextTool && result) {
+            transformedForNext = transformResultForNext(result, tool, nextTool);
+        }
+
+        return {
+            success: true,
+            tool,
+            result,
+            fallbackUsed,
+            transformedForNext
+        };
+    } catch (error) {
+        return {
+            success: false,
+            tool,
+            result: error instanceof Error ? error.message : 'Unknown error'
+        };
+    }
+}
+
+/**
+ * Transform result from one tool to be suitable for the next tool
+ */
+function transformResultForNext(result: string, fromTool: ToolName, toTool: ToolName): string {
+    // Search/Browser → Filesystem: Extract key content
+    if ((fromTool === 'search' || fromTool === 'browser') && toTool === 'filesystem') {
+        // Clean up the result for file saving
+        return result
+            .replace(/🔍|🌐|📋|📄|🔗/g, '') // Remove emojis
+            .replace(/\*\*/g, '') // Remove markdown bold
+            .substring(0, 10000); // Limit size
+    }
+
+    // Search/Browser → Slack: Create summary
+    if ((fromTool === 'search' || fromTool === 'browser') && toTool === 'slack') {
+        // Create a concise summary for Slack
+        const lines = result.split('\n').filter(l => l.trim());
+        return lines.slice(0, 10).join('\n');
+    }
+
+    // Default: return as-is
+    return result;
 }

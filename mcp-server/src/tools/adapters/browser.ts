@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
+import { validateUrl, autoFixUrl, isReachable, generateUrlSuggestions } from '../../utils/url-validator';
 
 dotenv.config();
 
@@ -10,6 +11,7 @@ export interface BrowserPayload {
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
     headers?: Record<string, string>;
     body?: unknown;
+    skipValidation?: boolean; // For internal calls that already validated
 }
 
 const MCP_CONFIG_PATH = path.join(__dirname, '../../../mcp_servers.json');
@@ -30,7 +32,18 @@ const DEFAULT_ALLOWED_DOMAINS = [
     'api.nytimes.com',
     'hacker-news.firebaseio.com',
     'api.ipify.org',
-    'worldtimeapi.org'
+    'worldtimeapi.org',
+    // Expanded for better web browsing
+    'en.wikipedia.org',
+    'api.wikipedia.org',
+    'raw.githubusercontent.com',
+    'arxiv.org',
+    'export.arxiv.org',
+    'api.npms.io',
+    'registry.npmjs.org',
+    'pypi.org',
+    'libretranslate.com',
+    'hn.algolia.com',
 ];
 
 function readAllowedDomains(): string[] {
@@ -98,11 +111,48 @@ function isAllowedUrl(url: string): boolean {
 }
 
 export async function executeBrowser(payload: BrowserPayload): Promise<string> {
-    const { url, method = 'GET', headers = {}, body } = payload;
+    const { url, method = 'GET', headers = {}, body, skipValidation = false } = payload;
 
-    // Validate URL
+    console.log(`[Browser] ═══════════════════════════════════════════`);
+    console.log(`[Browser] URL: ${url}`);
+    console.log(`[Browser] Method: ${method}`);
+
+    // Step 1: Validate URL format
+    if (!skipValidation) {
+        const validation = validateUrl(url);
+
+        if (!validation.isValid) {
+            console.log(`[Browser] URL validation failed: ${validation.error}`);
+
+            // Try to auto-fix
+            const fixedUrl = autoFixUrl(url);
+            const revalidation = validateUrl(fixedUrl);
+
+            if (revalidation.isValid) {
+                console.log(`[Browser] Auto-fixed URL: ${url} → ${fixedUrl}`);
+                // Continue with fixed URL
+                return executeBrowser({ ...payload, url: fixedUrl, skipValidation: true });
+            }
+
+            // Generate suggestions
+            const suggestions = validation.suggestions || generateUrlSuggestions(url);
+
+            throw new Error(
+                `Invalid URL: ${validation.error}\n` +
+                (suggestions.length > 0 ? `\nDid you mean:\n${suggestions.map((s: string) => `  • ${s}`).join('\n')}` : '')
+            );
+        }
+
+        // Use sanitized URL
+        if (validation.sanitizedUrl && validation.sanitizedUrl !== url) {
+            console.log(`[Browser] Sanitized URL: ${url} → ${validation.sanitizedUrl}`);
+            return executeBrowser({ ...payload, url: validation.sanitizedUrl, skipValidation: true });
+        }
+    }
+
+    // Step 2: Check domain allowlist
     const allowUnsafe = process.env.BROWSER_ALLOW_UNSAFE_URLS === 'true';
-    console.log(`[Browser] URL: ${url}, AllowUnsafe: ${allowUnsafe}, EnvVar: "${process.env.BROWSER_ALLOW_UNSAFE_URLS}"`);
+    console.log(`[Browser] AllowUnsafe: ${allowUnsafe}, EnvVar: "${process.env.BROWSER_ALLOW_UNSAFE_URLS}"`);
 
     if (!allowUnsafe && !isAllowedUrl(url)) {
         throw new Error(`URL not allowed. Allowed domains: ${readAllowedDomains().join(', ')}, localhost. Set BROWSER_ALLOW_UNSAFE_URLS=true in .env to bypass.`);
